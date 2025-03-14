@@ -1,9 +1,11 @@
+package server.protocoltests;
+
 import com.fasterxml.jackson.core.JsonProcessingException;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import protocol.utils.Utils;
+import server.protocoltests.protocol.utils.Utils;
 import Utilities.messages.*;
 
 import java.io.*;

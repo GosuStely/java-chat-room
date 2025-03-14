@@ -15,7 +15,8 @@ public class Utils {
             byte[] hash = MessageDigest.getInstance("SHA-256").digest(data);
             return new BigInteger(1, hash).toString(16);
         } catch (Exception e) {
-            throw new RuntimeException("Failed to calculate checksum", e);
+            System.out.println(STR."Failed to calculate checksum\{e.getMessage()}");
         }
+        return "-1";
     }
 }

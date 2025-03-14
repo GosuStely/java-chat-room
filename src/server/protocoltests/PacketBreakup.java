@@ -1,8 +1,10 @@
+package server.protocoltests;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import org.junit.jupiter.api.*;
 import Utilities.messages.*;
-import protocol.utils.Utils;
+import server.protocoltests.protocol.utils.Utils;
+
 
 import java.io.*;
 import java.net.Socket;

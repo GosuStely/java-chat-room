@@ -41,21 +41,21 @@ public class Client {
 
             mapper = new ObjectMapper();
 
-            if (!initializeConnection()) return;
+            if (!establishServerConnection()) return;
 
             userReader = new BufferedReader(new InputStreamReader(System.in));
             writer = new PrintWriter(socket.getOutputStream(), true);
 
-            String username = handleUserLogin();
+            String username = authenticateUser();
             if (username == null) return;
 
-            startChatMode();
+            enterChatSession();
         } catch (IOException e) {
             System.out.println("Error: " + e.getMessage());
         }
     }
 
-    private static boolean initializeConnection() throws IOException {
+    private static boolean establishServerConnection() throws IOException {
         serverReader = new BufferedReader(new InputStreamReader(socket.getInputStream()));
         String serverResponse = serverReader.readLine();
 
@@ -80,13 +80,13 @@ public class Client {
         }
     }
 
-    private static String handleUserLogin() throws IOException {
+    private static String authenticateUser() throws IOException {
         while (true) {
             System.out.print("Enter username: ");
             String usernameInput = userReader.readLine();
 
             Enter enterMessage = new Enter(usernameInput);
-            sendCommand(Commands.ENTER, enterMessage);
+            sendServerCommand(Commands.ENTER, enterMessage);
 
             String serverResponse = serverReader.readLine();
             if (serverResponse == null) {
@@ -107,11 +107,11 @@ public class Client {
                 return usernameInput;
             }
 
-            handleLoginError(enterResp.code());
+            displayLoginError(enterResp.code());
         }
     }
 
-    private static void handleLoginError(int errorCode) {
+    private static void displayLoginError(int errorCode) {
         switch (errorCode) {
             case 5000 -> System.out.println("User with this name already exists.");
             case 5001 ->
@@ -121,22 +121,22 @@ public class Client {
         }
     }
 
-    private static void startChatMode() throws IOException {
+    private static void enterChatSession() throws IOException {
         System.out.println(" You are now in chat mode.");
-        printHelpMenu();
+        showHelpMenu();
 
-        Thread listenerThread = createListenerThread();
+        Thread listenerThread = setupServerMessageListener();
         listenerThread.start();
 
-        handleUserCommands();
+        processUserInput();
     }
 
-    private static Thread createListenerThread() {
+    private static Thread setupServerMessageListener() {
         return new Thread(() -> {
             try {
                 String serverMessage;
                 while ((serverMessage = serverReader.readLine()) != null) {
-                    processServerMessage(serverMessage);
+                    handleServerMessage(serverMessage);
                 }
             } catch (IOException e) {
                 System.out.println("Connection to server lost: " + e.getMessage());
@@ -153,31 +153,31 @@ public class Client {
      * @param serverMessage The message received from the server.
      * @throws IOException If an error occurs during message parsing or handling.
      */
-    private static void processServerMessage(String serverMessage) throws IOException {
+    private static void handleServerMessage(String serverMessage) throws IOException {
         String[] parts = serverMessage.split(" ", 2);
         String command = parts[0];
         String jsonPayload = parts[1];
 
         switch (command) {
-            case Commands.PING -> sendPong();
-            case Commands.HANGUP -> handleHangup();
-            case Commands.BROADCAST_RESP -> sendingBroadcast(jsonPayload);
-            case Commands.BROADCAST -> printMessage(jsonPayload);
-            case Commands.JOINED -> informJoinedClient(jsonPayload);
-            case Commands.LEFT -> informLeftClient(jsonPayload);
+            case Commands.PING -> respondToPing();
+            case Commands.HANGUP -> handleConnectionTermination();
+            case Commands.BROADCAST_RESP -> processBroadcastResponse(jsonPayload);
+            case Commands.BROADCAST -> showBroadcastMessage(jsonPayload);
+            case Commands.JOINED -> notifyUserJoined(jsonPayload);
+            case Commands.LEFT -> notifyUserLeft(jsonPayload);
             case Commands.BYE_RESP -> closeConnection();
-            case Commands.LIST_RESP -> handleListOfConnectedClients(jsonPayload);
-            case Commands.PRIVATE_MSG -> printPrivateMessage(jsonPayload);
-            case Commands.PRIVATE_MSG_RESP -> privateMessageErrors(jsonPayload);
-            case Commands.RPS_START_RESP -> handleRpsStartResponse(jsonPayload);
-            case Commands.RPS_INVITE -> handleRpsInvite(jsonPayload);
+            case Commands.LIST_RESP -> displayConnectedClients(jsonPayload);
+            case Commands.PRIVATE_MSG -> displayPrivateMessage(jsonPayload);
+            case Commands.PRIVATE_MSG_RESP -> handlePrivateMessageError(jsonPayload);
+            case Commands.RPS_START_RESP -> processRpsGameInvitationResponse(jsonPayload);
+            case Commands.RPS_INVITE -> processRpsGameInvitation(jsonPayload);
             case Commands.RPS_INVITE_DECLINED -> System.out.println("Game invitation declined.");
             case Commands.RPS_READY -> System.out.println("Please select your move: /r, /p, /s");
-            case Commands.RPS_MOVE_RESP -> handleMoveResponse(jsonPayload);
-            case Commands.RPS_RESULT -> handleRpsResult(jsonPayload);
-            case Commands.FILE_TRANSFER_REQ -> handleIncomingFileTransferRequest(jsonPayload);
-            case Commands.FILE_TRANSFER_RESP -> handleFileRequestResponse(jsonPayload);
-            case Commands.FILE_TRANSFER_READY -> fileTransferProcess(jsonPayload);
+            case Commands.RPS_MOVE_RESP -> processRpsMoveResponse(jsonPayload);
+            case Commands.RPS_RESULT -> displayRpsGameResult(jsonPayload);
+            case Commands.FILE_TRANSFER_REQ -> processIncomingFileRequest(jsonPayload);
+            case Commands.FILE_TRANSFER_RESP -> processFileTransferResponse(jsonPayload);
+            case Commands.FILE_TRANSFER_READY -> manageFileTransfer(jsonPayload);
             default -> System.out.println("Unknown server message: " + serverMessage);
         }
     }
@@ -189,7 +189,7 @@ public class Client {
      * @param jsonPayload The JSON payload containing file transfer details.
      * @throws JsonProcessingException If the JSON payload cannot be parsed.
      */
-    private static void fileTransferProcess(String jsonPayload) throws JsonProcessingException {
+    private static void manageFileTransfer(String jsonPayload) throws JsonProcessingException {
         FileTransferReady fileTransferReady = mapper.readValue(jsonPayload, FileTransferReady.class);
         String uuid = fileTransferReady.uuid();
         String type = fileTransferReady.type();
@@ -206,9 +206,9 @@ public class Client {
                         System.out.println("No stored path for filename " + filename);
                         return;
                     }
-                    sendFile(uuid, path, transferOutputStream);
+                    transferFileToServer(uuid, path, transferOutputStream);
                 } else if (type.equals("r")) {
-                    receiveFile(uuid, checksum, filename, transferInputStream, transferOutputStream);
+                    downloadFileFromServer(uuid, checksum, filename, transferInputStream, transferOutputStream);
                 }
             } catch (IOException e) {
                 System.out.println(e.getMessage());
@@ -216,7 +216,7 @@ public class Client {
         }).start();
     }
 
-    private static void handleUserCommands() throws IOException {
+    private static void processUserInput() throws IOException {
         while (true) {
             String input = userReader.readLine();
             if (input.startsWith("@")) {
@@ -227,29 +227,29 @@ public class Client {
                 }
                 String receiver = parts[0].substring(1);
                 String messageContent = parts[1];
-                sendCommand(Commands.PRIVATE_MSG_REQ, new PrivateMsgReq(receiver, messageContent));
+                sendServerCommand(Commands.PRIVATE_MSG_REQ, new PrivateMsgReq(receiver, messageContent));
             } else if (input.startsWith("/send")) {
-                requestFileTransfer(input);
+                initiateFileTransferRequest(input);
             } else if (input.startsWith("/a ")) {
-                processFileRequest(input, true);
+                handleFileTransferDecision(input, true);
             } else if (input.startsWith("/d ")) {
-                processFileRequest(input, false);
+                handleFileTransferDecision(input, false);
             } else {
                 switch (input) {
                     case "/exit" -> {
-                        sendCommand(Commands.BYE, new Bye());
+                        sendServerCommand(Commands.BYE, new Bye());
                         closeConnection();
                     }
-                    case "/help" -> printHelpMenu();
-                    case "/all" -> sendCommand(Commands.LIST_REQ, new ListReq());
-                    case "/rps" -> initiateRpsGame();
-                    case "/y" -> processRpsInvitation(true);
-                    case "/n" -> processRpsInvitation(false);
-                    case "/r" -> sendMove("/r");
-                    case "/p" -> sendMove("/p");
-                    case "/s" -> sendMove("/s");
-                    case "/files" -> showFileRequests();
-                    default -> sendCommand(Commands.BROADCAST_REQ, new BroadcastReq(input));
+                    case "/help" -> showHelpMenu();
+                    case "/all" -> sendServerCommand(Commands.LIST_REQ, new ListReq());
+                    case "/rps" -> startRockPaperScissorsGame();
+                    case "/y" -> respondToRpsInvitation(true);
+                    case "/n" -> respondToRpsInvitation(false);
+                    case "/r" -> submitRpsMove("/r");
+                    case "/p" -> submitRpsMove("/p");
+                    case "/s" -> submitRpsMove("/s");
+                    case "/files" -> displayPendingFileRequests();
+                    default -> sendServerCommand(Commands.BROADCAST_REQ, new BroadcastReq(input));
                 }
             }
         }
@@ -263,7 +263,7 @@ public class Client {
      * @param transferOutputStream The output stream for sending the file data.
      * @throws IOException If an error occurs during file transfer.
      */
-    private static void sendFile(String uuid, String filePath, OutputStream transferOutputStream) throws IOException {
+    private static void transferFileToServer(String uuid, String filePath, OutputStream transferOutputStream) throws IOException {
         String header = uuid + "s";
         transferOutputStream.write(header.getBytes());
         transferOutputStream.flush();
@@ -296,7 +296,7 @@ public class Client {
      * @throws IOException If an error occurs during file transfer or saving.
      */
 
-    private static void receiveFile(String uuid, String expectedChecksum, String filename, InputStream transferInputStream, OutputStream transferOutputStream) throws IOException {
+    private static void downloadFileFromServer(String uuid, String expectedChecksum, String filename, InputStream transferInputStream, OutputStream transferOutputStream) throws IOException {
         String header = uuid + "r";
         transferOutputStream.write(header.getBytes());
         transferOutputStream.flush();
@@ -307,7 +307,7 @@ public class Client {
             System.out.println("New path created at: " + downloadDir.getAbsolutePath());
         }
 
-        File outFile = generateUniqueFile(downloadDir, filename);
+        File outFile = createUniqueFileName(downloadDir, filename);
         try (FileOutputStream fileOutputStream = new FileOutputStream(outFile)) {
             transferInputStream.transferTo(fileOutputStream);
             System.out.println("Downloading...");
@@ -322,7 +322,7 @@ public class Client {
                     System.out.println("Actual: " + actualChecksum);
                 }
             }
-            closeFileConnection(transferOutputStream, transferInputStream);
+            closeFileTransferSockets(transferOutputStream, transferInputStream);
         } catch (IOException e) {
             System.out.println("Error writing downloaded file: " + e.getMessage());
         }
@@ -335,7 +335,7 @@ public class Client {
      * @param filename  The original filename.
      * @return A File object with a unique filename.
      */
-    private static File generateUniqueFile(File directory, String filename) {
+    private static File createUniqueFileName(File directory, String filename) {
         String baseName = filename;
         String extension = "";
 
@@ -365,7 +365,7 @@ public class Client {
      * @throws JsonProcessingException If the JSON payload cannot be parsed.
      */
 
-    private static void handleFileRequestResponse(String jsonPayload) throws JsonProcessingException {
+    private static void processFileTransferResponse(String jsonPayload) throws JsonProcessingException {
         FileTransferResp fileTransferResp = mapper.readValue(jsonPayload, FileTransferResp.class);
         if (fileTransferResp.status().equals("OK")) {
             System.out.println("File transfer request sent ✔");
@@ -388,7 +388,7 @@ public class Client {
      * @param accept `true` to accept the request, `false` to decline.
      * @throws JsonProcessingException If the server response cannot be parsed.
      */
-    private static void processFileRequest(String input, boolean accept) throws JsonProcessingException {
+    private static void handleFileTransferDecision(String input, boolean accept) throws JsonProcessingException {
         String[] parts = input.split(" ", 3);
         if (parts.length != 3) {
             System.out.println("Invalid command. Use /accept <sender> <filename> or /decline <sender> <filename>.");
@@ -415,14 +415,14 @@ public class Client {
 
         if (accept) {
             System.out.println("Accepted file " + filename + " from " + sender);
-            sendCommand(Commands.FILE_TRANSFER_RESP, new FileTransferResp("ACCEPT", 0));
+            sendServerCommand(Commands.FILE_TRANSFER_RESP, new FileTransferResp("ACCEPT", 0));
         } else {
             System.out.println("Declined file  " + filename + " from " + sender);
-            sendCommand(Commands.FILE_TRANSFER_RESP, new FileTransferResp("DECLINE", 0));
+            sendServerCommand(Commands.FILE_TRANSFER_RESP, new FileTransferResp("DECLINE", 0));
         }
     }
 
-    private static void showFileRequests() {
+    private static void displayPendingFileRequests() {
         if (incomingRequests.isEmpty()) {
             System.out.println("No request to show.");
         } else {
@@ -441,7 +441,7 @@ public class Client {
      * @param input The user's input containing the receiver and file path (this file path is absolute).
      * @throws JsonProcessingException If the file transfer request cannot be serialized.
      */
-    private static void requestFileTransfer(String input) throws JsonProcessingException {
+    private static void initiateFileTransferRequest(String input) throws JsonProcessingException {
         String[] parts = input.split(" ", 3);
         if (parts.length != 3) {
             System.out.println("Invalid command. Use: /send-file <receiver> <file-path>");
@@ -463,7 +463,7 @@ public class Client {
         filePathMap.put(filename, filePath);
 
         FileTransferReq fileTransferReq = new FileTransferReq(username, receiver, filename, checksum);
-        sendCommand(Commands.FILE_TRANSFER_REQ, fileTransferReq);
+        sendServerCommand(Commands.FILE_TRANSFER_REQ, fileTransferReq);
 
     }
 
@@ -474,7 +474,7 @@ public class Client {
      * @param jsonPayload The JSON payload containing file transfer details.
      * @throws IOException If the JSON payload cannot be parsed.
      */
-    private static void handleIncomingFileTransferRequest(String jsonPayload) throws IOException {
+    private static void processIncomingFileRequest(String jsonPayload) throws IOException {
         FileTransferReq req = mapper.readValue(jsonPayload, FileTransferReq.class);
         incomingRequests.add(req);
         System.out.println("New file transfer request from: " + req.sender());
@@ -486,7 +486,7 @@ public class Client {
      * @param jsonPayload The JSON payload containing the server's response to the move.
      * @throws JsonProcessingException If the JSON payload cannot be parsed.
      */
-    private static void handleMoveResponse(String jsonPayload) throws JsonProcessingException {
+    private static void processRpsMoveResponse(String jsonPayload) throws JsonProcessingException {
         RpsMoveResp rpsMoveResp = mapper.readValue(jsonPayload, RpsMoveResp.class);
         if (rpsMoveResp.status().equals("OK")) {
             System.out.println("Move sent ✔");
@@ -504,7 +504,7 @@ public class Client {
      * @param jsonPayload The JSON payload containing the server's response.
      * @throws JsonProcessingException If the JSON payload cannot be parsed.
      */
-    private static void handleRpsStartResponse(String jsonPayload) throws JsonProcessingException {
+    private static void processRpsGameInvitationResponse(String jsonPayload) throws JsonProcessingException {
         RpsStartResp rpsStartResp = mapper.readValue(jsonPayload, RpsStartResp.class);
         if (rpsStartResp.status().equals("ERROR")) {
             switch (rpsStartResp.code()) {
@@ -524,13 +524,13 @@ public class Client {
      * The user is prompted to enter the opponent's username.
      * @throws IOException If an error occurs while reading user input or sending the request.
      */
-    private static void initiateRpsGame() throws IOException {
+    private static void startRockPaperScissorsGame() throws IOException {
         System.out.println("List of connected clients:");
-        sendCommand(Commands.LIST_REQ, null);
+        sendServerCommand(Commands.LIST_REQ, null);
 
         System.out.println("Enter your opponent: ");
         String opponent = userReader.readLine();
-        sendCommand(Commands.RPS_START_REQ, new RpsStartReq(opponent));
+        sendServerCommand(Commands.RPS_START_REQ, new RpsStartReq(opponent));
     }
 
     /**
@@ -539,7 +539,7 @@ public class Client {
      * @param jsonPayload The JSON payload containing the sender's username.
      * @throws IOException If an error occurs during JSON parsing or user input.
      */
-    private static void handleRpsInvite(String jsonPayload) throws IOException {
+    private static void processRpsGameInvitation(String jsonPayload) throws IOException {
         RpsInvite rpsInvite = mapper.readValue(jsonPayload, RpsInvite.class);
 
         System.out.println("You have been invited to a game by " + rpsInvite.sender());
@@ -555,12 +555,12 @@ public class Client {
      * @param accept `true` if the user accepts the invitation, `false` otherwise.
      * @throws JsonProcessingException If the response message cannot be serialized.
      */
-    private static void processRpsInvitation(boolean accept) throws JsonProcessingException {
+    private static void respondToRpsInvitation(boolean accept) throws JsonProcessingException {
         if (accept) {
-            sendCommand(Commands.RPS_INVITE_RESP, new RpsInviteResp("ACCEPT"));
+            sendServerCommand(Commands.RPS_INVITE_RESP, new RpsInviteResp("ACCEPT"));
             System.out.println("Invitation accepted");
         } else {
-            sendCommand(Commands.RPS_INVITE_RESP, new RpsInviteResp("DECLINE"));
+            sendServerCommand(Commands.RPS_INVITE_RESP, new RpsInviteResp("DECLINE"));
             System.out.println("Invitation declined");
         }
     }
@@ -570,8 +570,8 @@ public class Client {
      * @param move The user's move, represented as a string (`"/r"`, `"/p"`, or `"/s"`).
      * @throws JsonProcessingException If the move request cannot be serialized.
      */
-    private static void sendMove(String move) throws JsonProcessingException {
-        sendCommand(Commands.RPS_MOVE_REQ, new RpsMove(move));
+    private static void submitRpsMove(String move) throws JsonProcessingException {
+        sendServerCommand(Commands.RPS_MOVE_REQ, new RpsMove(move));
     }
 
     /**
@@ -582,7 +582,7 @@ public class Client {
      * @param jsonPayload The JSON payload containing the game result.
      * @throws JsonProcessingException If the JSON payload cannot be parsed.
      */
-    private static void handleRpsResult(String jsonPayload) throws JsonProcessingException {
+    private static void displayRpsGameResult(String jsonPayload) throws JsonProcessingException {
         Map<String, Object> result = mapper.readValue(jsonPayload, Map.class);
         String winner = (String) result.get("winner");
 
@@ -600,25 +600,25 @@ public class Client {
      * @param message The message object to be sent (can be `null`).
      * @throws JsonProcessingException If the message cannot be serialized.
      */
-    private static void sendCommand(String command, Object message) throws JsonProcessingException {
+    private static void sendServerCommand(String command, Object message) throws JsonProcessingException {
         String jsonMessage = command + " " + (message == null ? "{}" : mapper.writeValueAsString(message));
         writer.println(jsonMessage);
     }
 
-    private static void sendPong() throws JsonProcessingException {
-        sendCommand(Commands.PONG, new Pong());
+    private static void respondToPing() throws JsonProcessingException {
+        sendServerCommand(Commands.PONG, new Pong());
     }
 
-    private static void sendingBroadcast(String jsonPayload) throws JsonProcessingException {
+    private static void processBroadcastResponse(String jsonPayload) throws JsonProcessingException {
         BroadcastResp broadcastResp = mapper.readValue(jsonPayload, BroadcastResp.class);
         if ((broadcastResp.status()).equals("OK")) {
             System.out.println("Sent ✔");
         } else {
-            BroadcastingError(broadcastResp.code());
+            displayBroadcastError(broadcastResp.code());
         }
     }
 
-    private static void BroadcastingError(int errorCode) {
+    private static void displayBroadcastError(int errorCode) {
         if (errorCode == 6000) {
             System.out.println("Error: You must log in before sending a broadcast message.");
         } else {
@@ -626,17 +626,17 @@ public class Client {
         }
     }
 
-    private static void printMessage(String jsonPayload) throws JsonProcessingException {
+    private static void showBroadcastMessage(String jsonPayload) throws JsonProcessingException {
         Broadcast broadcast = mapper.readValue(jsonPayload, Broadcast.class);
         System.out.println(broadcast.username() + ": " + broadcast.message());
     }
 
-    private static void handleHangup() {
+    private static void handleConnectionTermination() {
         System.out.println("Received HANGUP due to missing PONG");
         closeConnection();
     }
 
-    private static void handleListOfConnectedClients(String jsonPayload) throws JsonProcessingException {
+    private static void displayConnectedClients(String jsonPayload) throws JsonProcessingException {
         ListResp listResp = mapper.readValue(jsonPayload, ListResp.class);
 
         if ("ERROR".equals(listResp.status())) {
@@ -655,22 +655,22 @@ public class Client {
         }
     }
 
-    private static void informJoinedClient(String jsonPayload) throws JsonProcessingException {
+    private static void notifyUserJoined(String jsonPayload) throws JsonProcessingException {
         Joined joined = mapper.readValue(jsonPayload, Joined.class);
         System.out.println(joined.username() + " has joined the chat.");
     }
 
-    private static void informLeftClient(String jsonPayload) throws JsonProcessingException {
+    private static void notifyUserLeft(String jsonPayload) throws JsonProcessingException {
         Joined left = mapper.readValue(jsonPayload, Joined.class);
         System.out.println(left.username() + " has left the chat.");
     }
 
-    private static void printPrivateMessage(String jsonPayload) throws JsonProcessingException {
+    private static void displayPrivateMessage(String jsonPayload) throws JsonProcessingException {
         PrivateMsg privateMsg = mapper.readValue(jsonPayload, PrivateMsg.class);
         System.out.println("[PRIVATE] " + privateMsg.sender() + ": " + privateMsg.message());
     }
 
-    private static void privateMessageErrors(String jsonPayload) throws JsonProcessingException {
+    private static void handlePrivateMessageError(String jsonPayload) throws JsonProcessingException {
         PrivateMsgResp privateMsgResp = mapper.readValue(jsonPayload, PrivateMsgResp.class);
         if (privateMsgResp.status().equals("ERROR")) {
             switch (privateMsgResp.code()) {
@@ -683,7 +683,7 @@ public class Client {
         }
     }
 
-    private static void printHelpMenu() {
+    private static void showHelpMenu() {
         System.out.println("Available commands: ");
         System.out.println("----------------------------");
         System.out.println("/help - Show this help menu");
@@ -709,7 +709,7 @@ public class Client {
         }
     }
 
-    private static void closeFileConnection(OutputStream os, InputStream is) {
+    private static void closeFileTransferSockets(OutputStream os, InputStream is) {
         try {
             os.close();
             is.close();
