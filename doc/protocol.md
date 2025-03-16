@@ -154,11 +154,12 @@ C -> S: BROADCAST_REQ {"aaaa}
 S -> C: PARSE_ERROR
 ```
 
-# 7. Get a list of all connected clients
+# 7. Retrieve a List of All Connected Clients
 
-Allows a client to request a list of all currently connected clients. The server responds with a list containing the usernames of all connected clients.
+This section allows a client to request a list of all currently connected clients. The server responds with a list of usernames of all connected clients.
 
 ## 7.1. Happy flow
+The client sends a request to the server to get the list of connected clients:
 ```
 C1 -> S: LIST_REQ
 S -> C1: LIST_RESP {"clients": ["<C2_username>", "<C3_username>", "<C4_username>", ...]}
@@ -169,6 +170,7 @@ S -> C1: LIST_RESP {"clients": ["<C2_username>", "<C3_username>", "<C4_username>
 
 
 ## 7.2. Unhappy flow
+If the client is not logged in, the server responds with an error:
 
 ```
 S -> C: LIST_RESP {"status":"ERROR", "code":<error code>}
@@ -180,23 +182,24 @@ Possible `<error code>`:
 | 9000       | User is not logged in | 
 
 # 8. Send private message from a client to another client 
-
+This section describes how a client can send a private message to another client.
 ## 8.1. Happy flow
 
-C1 sends a private message request to the server, specifying the recipient's username (C2) and the message content
+Client 1 sends a private message request to the server, specifying the recipient's username(Client 2) and the message content:
 
 ```
 C1 -> S: PRIVATE_MSG_REQ {"receiver":"<C2_username>", "message":"<message>"}
 S -> C1: PRIVATE_MSG_RESP {"status":"OK"}
 ```
 
-Client B receives the private message as follows:
+The recipient (Client 2) receives the private message as follows:
 
 ```
 S -> C2: PRIVATE_MSG {"sender":"<C1_username>", "message":"<message>"}
 ```
 
 ## 8.2. Unhappy flow
+If an error occurs, the server responds with an error code:
 ```
 S -> C1: PRIVATE_MSG_RESP {"status":"ERROR", "code":<error code>}
 ```
@@ -209,19 +212,23 @@ Possible `<error code>`:
 | 10003      | Can't send private message to self | 
 
 # 9. Rock, Paper, Scissors
+This section outlines the protocol for initiating and playing a Rock, Paper, Scissors game between two clients.
 ## 9.1. A player initiate the game
-Client 1 sends a request to the server, specifying the receiver's (client 2) username.
+Client 1 sends a request to the server to start a game with Client 2, specifying the recipient's username:
 ```
 C1 -> S: RPS_START_REQ {"receiver": "<C2_username>"}
 ```
 
 ### 9.1.1. Happy flow
+If the request is successful:
+
 ```
 S -> C1: RPS_START_RESP {"status": "OK"}
 S -> C2: RPS_INVITE {"sender": "<C1_username>"}
 ```
 
 ### 9.1.2. Unhappy flow
+If an error occurs, the server responds with an error code:
 ```
 S -> C1: RPS_START_RESP {"status": "ERROR", "code": <error code>}
 ```
@@ -234,7 +241,7 @@ Possible `<error code>`:
 | 11003      | Can't send game request to self                       |
 | 11005      | No ongoing game. User need to initiate the game first |
 
-In case there's an ongoing game between other players (referred as `C3` and `C4`):
+If a game is already ongoing between other players (e.g., Client 3 and Client 4):
 ```
 S -> C1: RPS_START_RESP {"status": "ERROR", "code": <error code>, "player1": "<C3_username>", "player2": "<C4_username>"}
 ```
@@ -246,10 +253,10 @@ Possible `<error code>`:
 
 
 ## 9.2. Invitation response
-The receiver responds to the invitation (accept or decline).
+The recipient (Client 2) can either accept or decline the game invitation.
 
 ### 9.2.1. Happy flow
-If the receiver accepts the invitation:
+If Client 2 accepts the invitation:
 ```
 C2 -> S: RPS_INVITE_RESP {"status": "ACCEPT"}
 ```
@@ -258,41 +265,44 @@ Both the sender and receiver then receive a response from the server and are rea
 S -> C1 & C2: RPS_READY
 ```
 
-If the receiver declines the invitation:
+If Client 2 declines the invitation:
 ``` 
 C2 -> S: RPS_INVITE_RESP {"status": "DECLINE"}
 S -> C1: RPS_INVITE_DECLINED 
 ```
 
 ### 9.2.2. Unhappy flow
-None
+No unhappy flow scenarios are defined.
 
 ## 9.3. Game process
+Once the game is ready, both players make their moves.
 ### 9.3.1. Happy flow
-Once the game is ready, both users make their moves by sending their choices to the server.
+Both clients send their choices to the server:
 ``` 
 C1 & C2 -> S: RPS_MOVE {"choice": "<move>"}
 S -> C1 & C2: RPS_MOVE_RESP {"status": "OK"}
 ```
 `<move>`: "/r" (rock), "/p" (paper), "/s" (scissors).
 
-The server sends the results to both users:
+The server sends the results to both players:
 ``` 
 S -> C1 & C2: RPS_RESULT {"winner": "<winner_username>", "choices": {"<C1>": "<move1>", "<C2>": "<move2>"}}
 ```
-If there's a draw:
+If the game is a draw:
 ```
 S -> C1 & C2: RPS_RESULT {"winner": null, "choices": {"<C1>": "<move1>", "<C2>": "<move2>"}}
 ```
 ### 9.3.2. Unhappy flow
-None
+No unhappy flow scenarios are defined.
 
 # 10. Transferring file
+This section describes the protocol for transferring files between two clients.
 ## 10.1. File transfer request
 
-Client 1 (uploader/sender) requests to send a file to client 2 (downloader/receiver)
+Client 1 (sender) requests to send a file to Client 2 (receiver).
 
 ### 10.1.1. Happy flow
+Client 1 sends a file transfer request:
 ```
 C1 -> S: FILE_TRANSFER_REQ {"receiver": "<C2_username>", "filename": "<filename>", "checksum": <checksumValue>}
 S -> C1: FILE_TRANSFER_RESP {"status":"OK"}
@@ -301,13 +311,14 @@ S -> C1: FILE_TRANSFER_RESP {"status":"OK"}
 
 `<checksumValue>`: SHA-256 checksum of the file
 
-Client 2 (receiver) receives the message as follows:
+Client 2 receives the request:
 
 ```
 S -> C2: FILE_TRANSFER_REQ {"sender": "<C1_username>", "filename": "<filename>", "checksum": <checksumValue>}
 ```
 
 ### 10.1.2. Unhappy flow
+If an error occurs, the server responds with an error code:
 ```
 S -> C1: FILE_TRANSFER_RESP {"status": "ERROR", "code": <error code>}
 ```
@@ -321,8 +332,9 @@ Possible `<error code>`:
 
 
 ## 10.2. File transfer responses
+Client 2 can either accept or decline the file transfer request.
 ### 10.2.1. Happy flow
-Client 2 accepts the request
+If Client 2 accepts the request:
 ```
 C2 -> S: FILE_TRANSFER_RESP {"status":"ACCEPT"}
 S -> C1: FILE_TRANSFER_READY {"uuid":<uuid>, "type": "s", "checksum":<checksumValue>, "filename":<filename>}
@@ -334,16 +346,17 @@ S -> C2: FILE_TRANSFER_READY {"uuid":<uuid>, "type": "r"}
 
 `r`: receiver identification
 
-Client 2 rejects the request
+If Client 2 declines the request:
 ```
 C2 -> S: FILE_TRANSFER_RESP {"status":"DECLINE"}
 S -> C1: FILE_TRANSFER_RESP {"status":"DECLINE"}
 ```
 
 ### 10.2.2. Unhappy flow
-None
+No unhappy flow scenarios are defined.
 
 ## 10.3. Sending File Data
+Once the file transfer is ready, the sender starts sending the file data.
 ### 10.3.1. Happy flow
 Both C1 and C2 identify themselves as sender or receiver, C1 starts sending bytes, C2 receives bytes
 ``` 
