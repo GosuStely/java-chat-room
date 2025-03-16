@@ -1,5 +1,6 @@
 package client.managers;
 
+import Utilities.messages.ticTacToe.*;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import Utilities.Commands;
@@ -68,6 +69,14 @@ public class MessageManager {
             case Commands.FILE_TRANSFER_REQ -> processIncomingFileRequest(jsonPayload);
             case Commands.FILE_TRANSFER_RESP -> processFileTransferResponse(jsonPayload);
             case Commands.FILE_TRANSFER_READY -> processFileTransferReady(jsonPayload);
+            case Commands.TTT_INVITE -> processTttGameInvitation(jsonPayload);
+            case Commands.TTT_INVITE_RESP -> processTttGameInvitationResponse(jsonPayload);
+            case Commands.TTT_START_RESP -> processTttStartResponse(jsonPayload);
+            case Commands.TTT_READY -> System.out.println("Tic-Tac-Toe game started. Make your move with /tttmove <row> <col>");
+            case Commands.TTT_MOVE_RESP -> processTttMoveResponse(jsonPayload);
+            case Commands.TTT_RESULT -> displayTttGameResult(jsonPayload);
+            case Commands.TTT_INVITE_DECLINED -> processTttInviteDeclined();
+            case Commands.TTT_BOARD_UPDATE -> processTttBoardUpdate(jsonPayload);
             default -> System.out.println("Unknown server message: " + serverMessage);
         }
     }
@@ -237,7 +246,7 @@ public class MessageManager {
         sendServerCommand(Commands.BROADCAST_REQ, new BroadcastReq(message));
     }
 
-    public void requestClientList() throws JsonProcessingException {
+    public  void requestClientList() throws JsonProcessingException {
         sendServerCommand(Commands.LIST_REQ, new ListReq());
     }
 
@@ -276,5 +285,95 @@ public class MessageManager {
 
     public void sendBye() throws JsonProcessingException {
         sendServerCommand(Commands.BYE, new Bye());
+    }
+    public void sendTttStartRequest(String opponent) throws JsonProcessingException {
+        sendServerCommand(Commands.TTT_START_REQ, new TttStartReq(opponent));
+    }
+
+    public void sendTttMove(int row, int col) throws JsonProcessingException {
+        sendServerCommand(Commands.TTT_MOVE_REQ, new TttMove(row, col));
+    }
+    private void processTttGameInvitation(String jsonPayload) throws IOException {
+        TttInvite invite = mapper.readValue(jsonPayload, TttInvite.class);
+        System.out.println("You have been invited to a Tic-Tac-Toe game by " + invite.sender());
+        System.out.println("Would you like to accept?");
+        System.out.println("/yes");
+        System.out.println("/no");
+    }
+
+    private void processTttGameInvitationResponse(String jsonPayload) throws JsonProcessingException {
+        TttInviteResp response = mapper.readValue(jsonPayload, TttInviteResp.class);
+        if (response.status().equals("ACCEPT")) {
+            System.out.println("Tic-Tac-Toe game started. Make your move with /tttmove <row> <col>");
+        } else {
+            System.out.println("Tic-Tac-Toe invitation declined.");
+        }
+    }
+
+    private void processTttMoveResponse(String jsonPayload) throws JsonProcessingException {
+        TttMoveResp moveResp = mapper.readValue(jsonPayload, TttMoveResp.class);
+        if (moveResp.status().equals("OK")) {
+            System.out.println("Move sent ✔");
+        } else {
+            System.out.println("Invalid move. Try again.");
+        }
+    }
+    private void processTttBoardUpdate(String jsonPayload) throws JsonProcessingException {
+        TttBoardUpdate boardUpdate = mapper.readValue(jsonPayload, TttBoardUpdate.class);
+        Map<String, String> board = boardUpdate.board();
+
+        // Display the board in a user-friendly format
+        System.out.println("Current Tic-Tac-Toe Board:");
+        for (int row = 0; row < 3; row++) {
+            for (int col = 0; col < 3; col++) {
+                String cell = board.get(row + "," + col);
+                if (cell.isEmpty()) {
+                    System.out.print("[ ]");
+                } else {
+                    System.out.print("[" + cell + "]");
+                }
+            }
+            System.out.println(); // New line after each row
+        }
+
+        // Display whose turn it is
+        System.out.println("It's " + (board.containsValue("X") ? "O" : "X") + "'s turn.");
+    }
+
+    private void displayTttGameResult(String jsonPayload) throws JsonProcessingException {
+        TttResult result = mapper.readValue(jsonPayload, TttResult.class);
+        if (result.winner() == null) {
+            System.out.println("It's a tie!");
+        } else {
+            System.out.println("The winner is: " + result.winner());
+        }
+        System.out.println("Final board:");
+        result.board().forEach((key, value) -> System.out.println(key + ": " + value));
+    }
+    private void processTttStartResponse(String jsonPayload) throws JsonProcessingException {
+        TttStartResp startResp = mapper.readValue(jsonPayload, TttStartResp.class);
+        if (startResp.status().equals("ERROR")) {
+            switch (startResp.code()) {
+                case 12001 -> System.out.println("You need to log in first. Please try again.");
+                case 12002 -> System.out.println("No opponent found.");
+                case 12003 -> System.out.println("Can't send game request to yourself.");
+                case 12004 -> System.out.println("A game is ongoing between " + startResp.player1() + " and " + startResp.player2());
+            }
+        } else {
+            System.out.println("Tic-Tac-Toe invitation sent to " + startResp.player2());
+        }
+    }
+    private void processTttInviteDeclined() {
+        System.out.println("Tic-Tac-Toe invitation declined by the opponent.");
+    }
+
+    public void respondToTttInvitation(boolean accept) throws JsonProcessingException {
+        if (accept) {
+            sendServerCommand(Commands.TTT_INVITE_RESP, new TttInviteResp("ACCEPT"));
+            System.out.println("Tic-Tac-Toe invitation accepted");
+        } else {
+            sendServerCommand(Commands.TTT_INVITE_RESP, new TttInviteResp("DECLINE"));
+            System.out.println("Tic-Tac-Toe invitation declined");
+        }
     }
 }

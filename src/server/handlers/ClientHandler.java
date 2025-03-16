@@ -1,5 +1,6 @@
 package server.handlers;
 
+import Utilities.messages.ticTacToe.*;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import server.Server;
@@ -112,6 +113,9 @@ public class ClientHandler implements Runnable {
                 case Commands.RPS_MOVE_REQ -> handleRpsMove(jsonPayload);
                 case Commands.FILE_TRANSFER_REQ -> handleFileTransferRequest(jsonPayload);
                 case Commands.FILE_TRANSFER_RESP -> handleFileTransferResponse(jsonPayload);
+                case Commands.TTT_START_REQ -> handleTttStart(jsonPayload);
+                case Commands.TTT_INVITE_RESP -> handleTttInviteResponse(jsonPayload);
+                case Commands.TTT_MOVE_REQ -> handleTttMove(jsonPayload);
                 default -> sendFormattedMessage(Commands.UNKNOWN_COMMAND, new ParseError());
 
             }
@@ -585,9 +589,222 @@ public class ClientHandler implements Runnable {
                     }
                 }
             }
-
             clients.remove(username);
         }
+    }
+    private void handleTttStart(String jsonPayload) throws JsonProcessingException {
+        if (username == null) {
+            sendFormattedMessage(Commands.TTT_START_RESP, new TttStartResp("ERROR", 12001, null, null));
+            return;
+        }
+
+        TttStartReq request = mapper.readValue(jsonPayload, TttStartReq.class);
+        String receiver = request.receiver();
+
+        if (receiver.equals(username)) {
+            sendFormattedMessage(Commands.TTT_START_RESP, new TttStartResp("ERROR", 12003, null, null));
+            return;
+        }
+
+        ClientHandler receiverHandler = clients.get(receiver);
+        if (receiverHandler == null) {
+            sendFormattedMessage(Commands.TTT_START_RESP, new TttStartResp("ERROR", 12002, null, null));
+            return;
+        }
+
+        if (playerToPlayer.containsKey(username) || playerToPlayer.containsKey(receiver)) {
+            String conflictPlayer1 = null;
+            String conflictPlayer2 = null;
+
+            for (Map.Entry<String, String> entry : playerToPlayer.entrySet()) {
+                if (entry.getKey().equals(username) || entry.getValue().equals(username) ||
+                        entry.getKey().equals(receiver) || entry.getValue().equals(receiver)) {
+                    conflictPlayer1 = entry.getKey();
+                    conflictPlayer2 = entry.getValue();
+                    break;
+                }
+            }
+
+            sendFormattedMessage(Commands.TTT_START_RESP, new TttStartResp("ERROR", 12004, conflictPlayer1, conflictPlayer2));
+            return;
+        }
+
+        playerToPlayer.put(username, receiver);
+        playerToPlayer.put(receiver, username);
+
+        sendFormattedMessage(Commands.TTT_START_RESP, new TttStartResp("OK", 0, username, receiver));
+        receiverHandler.sendFormattedMessage(Commands.TTT_INVITE, new TttInvite(username));
+    }
+
+    private void handleTttInviteResponse(String jsonPayload) throws JsonProcessingException {
+        if (username == null) {
+            System.out.println("Username not set for the client");
+            return;
+        }
+
+        TttInviteResp response = mapper.readValue(jsonPayload, TttInviteResp.class);
+        String opponent = playerToPlayer.get(username);
+
+        if (opponent == null) {
+            System.out.println("Opponent is null");
+            return;
+        }
+
+        ClientHandler opponentHandler = clients.get(opponent);
+
+        switch (response.status()) {
+            case "ACCEPT":
+                // Initialize a new game in tttGames
+                String gameKey = username + ":" + opponent;
+                Map<String, String> board = initializeTttBoard();
+                server.getTttGames().put(gameKey, board);
+
+                // Set the first player (X) as the player who initiated the game
+                server.getTttCurrentPlayer().put(gameKey, username);
+
+                // Add players to playerToPlayer
+                playerToPlayer.put(username, opponent);
+                playerToPlayer.put(opponent, username);
+
+                sendFormattedMessage(Commands.TTT_READY, null);
+                opponentHandler.sendFormattedMessage(Commands.TTT_READY, null);
+                break;
+            case "DECLINE":
+                playerToPlayer.remove(username);
+                playerToPlayer.remove(opponent);
+                opponentHandler.sendFormattedMessage(Commands.TTT_INVITE_DECLINED, "{}");
+                sendFormattedMessage(Commands.TTT_INVITE_DECLINED, "{}");
+                break;
+        }
+    }
+    private Map<String, String> initializeTttBoard() {
+        Map<String, String> board = new HashMap<>();
+
+        // Initialize a 3x3 board with empty cells
+        for (int row = 0; row < 3; row++) {
+            for (int col = 0; col < 3; col++) {
+                board.put(row + "," + col, ""); // Empty cell
+            }
+        }
+
+        return board;
+    }
+    private void handleTttMove(String jsonPayload) throws JsonProcessingException {
+        if (!playerToPlayer.containsKey(username)) {
+            sendFormattedMessage(Commands.TTT_MOVE_RESP, new TttMoveResp("ERROR", 12005));
+            return;
+        }
+
+        TttMove move = mapper.readValue(jsonPayload, TttMove.class);
+        int row = move.row();
+        int col = move.col();
+
+        String opponent = playerToPlayer.get(username);
+        String gameKey = username + ":" + opponent;
+
+        // Get the game board from tttGames
+        Map<String, String> board = server.getTttGames().get(gameKey);
+
+        if (board == null) {
+            sendFormattedMessage(Commands.TTT_MOVE_RESP, new TttMoveResp("ERROR", 12006)); // Game not found
+            return;
+        }
+
+        // Check if it's the player's turn
+        String currentPlayer = server.getTttCurrentPlayer().get(gameKey);
+        if (!username.equals(currentPlayer)) {
+            sendFormattedMessage(Commands.TTT_MOVE_RESP, new TttMoveResp("ERROR", 12009)); // Not your turn
+            return;
+        }
+
+        // Check if the cell is already occupied
+        String cellKey = row + "," + col;
+        if (!board.get(cellKey).isEmpty()) {
+            sendFormattedMessage(Commands.TTT_MOVE_RESP, new TttMoveResp("ERROR", 12007)); // Invalid move
+            return;
+        }
+
+        // Update the board with the player's move
+        String symbol = username.equals(currentPlayer) ? "X" : "O";
+        board.put(cellKey, symbol);
+
+        // Switch turns
+        String nextPlayer = username.equals(currentPlayer) ? opponent : username;
+        server.getTttCurrentPlayer().put(gameKey, nextPlayer);
+
+        // Send the updated board to both players
+        sendFormattedMessage(Commands.TTT_BOARD_UPDATE, new TttBoardUpdate(board));
+        clients.get(opponent).sendFormattedMessage(Commands.TTT_BOARD_UPDATE, new TttBoardUpdate(board));
+
+        // Check for a win or tie
+        if (checkWin(board, symbol)) {
+            resolveTttGame(username, gameKey);
+        } else if (checkTie(board)) {
+            resolveTttGame(null, gameKey);
+        } else {
+            sendFormattedMessage(Commands.TTT_MOVE_RESP, new TttMoveResp("OK", 0));
+        }
+    }
+
+    private boolean checkWin(Map<String, String> board, String symbol) {
+        // Check rows
+        for (int row = 0; row < 3; row++) {
+            if (board.get(row + ",0").equals(symbol) &&
+                    board.get(row + ",1").equals(symbol) &&
+                    board.get(row + ",2").equals(symbol)) {
+                return true;
+            }
+        }
+
+        // Check columns
+        for (int col = 0; col < 3; col++) {
+            if (board.get("0," + col).equals(symbol) &&
+                    board.get("1," + col).equals(symbol) &&
+                    board.get("2," + col).equals(symbol)) {
+                return true;
+            }
+        }
+
+        // Check diagonals
+        if (board.get("0,0").equals(symbol) &&
+                board.get("1,1").equals(symbol) &&
+                board.get("2,2").equals(symbol)) {
+            return true;
+        }
+
+        if (board.get("0,2").equals(symbol) &&
+                board.get("1,1").equals(symbol) &&
+                board.get("2,0").equals(symbol)) {
+            return true;
+        }
+
+        return false;
+    }
+
+    private boolean checkTie(Map<String, String> board) {
+        for (int row = 0; row < 3; row++) {
+            for (int col = 0; col < 3; col++) {
+                if (board.get(row + "," + col).isEmpty()) {
+                    return false; // At least one cell is empty
+                }
+            }
+        }
+
+        // If no empty cells and no winner, it's a tie
+        return true;
+    }
+
+    private void resolveTttGame(String winner, String gameKey) throws JsonProcessingException {
+        String player1 = gameKey.split(":")[0];
+        String player2 = gameKey.split(":")[1];
+
+        // Remove the game from tttGames
+        server.getTttGames().remove(gameKey);
+
+        // Notify both players of the result
+        TttResult result = new TttResult(winner, server.getTttGames().get(gameKey));
+        clients.get(player1).sendFormattedMessage(Commands.TTT_RESULT, result);
+        clients.get(player2).sendFormattedMessage(Commands.TTT_RESULT, result);
     }
 
 }

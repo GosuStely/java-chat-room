@@ -21,6 +21,8 @@ public class Server {
     private final Map<String, String> playerMoves = new ConcurrentHashMap<>();
     private final List<FileTransferDetails> pendingTransfers = new ArrayList<>();
     private static Map<String, TransferContext> ongoingTransfers = new ConcurrentHashMap<>();
+    private final Map<String, Map<String, String>> tttGames = new ConcurrentHashMap<>();
+    private final Map<String, String> tttCurrentPlayer = new ConcurrentHashMap<>();
 
     public static void main(String[] args) {
         new Server().start();
@@ -58,5 +60,12 @@ public class Server {
 
     public Map<String, TransferContext> getOngoingTransfers() {
         return ongoingTransfers;
+    }
+    public Map<String, Map<String, String>> getTttGames() {
+        return tttGames;
+    }
+
+    public Map<String, String> getTttCurrentPlayer() {
+        return tttCurrentPlayer;
     }
 }

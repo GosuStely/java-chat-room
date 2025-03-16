@@ -37,9 +37,11 @@ public class Commands {
     public static final String TTT_START_REQ = "TTT_START_REQ";
     public static final String TTT_INVITE = "TTT_INVITE";
     public static final String TTT_INVITE_RESP = "TTT_INVITE_RESP";
+    public static final String TTT_START_RESP = "TTT_START_RESP";
     public static final String TTT_MOVE_REQ = "TTT_MOVE_REQ";
     public static final String TTT_MOVE_RESP = "TTT_MOVE_RESP";
     public static final String TTT_RESULT = "TTT_RESULT";
     public static final String TTT_INVITE_DECLINED = "TTT_INVITE_DECLINED";
     public static final String TTT_READY = "TTT_READY";
+    public static final String TTT_BOARD_UPDATE = "TTT_BOARD_UPDATE";
 }

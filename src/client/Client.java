@@ -168,7 +168,9 @@ public class Client {
                 handleFileTransferDecision(input, true);
             } else if (input.startsWith("/d ")) {
                 handleFileTransferDecision(input, false);
-            } else {
+            } else if(input.startsWith("/tttmove")){
+                handleTicTacToeMove(input);
+            }else {
                 switch (input) {
                     case "/exit" -> {
                         messageManager.sendBye();
@@ -179,10 +181,13 @@ public class Client {
                     case "/rps" -> startRockPaperScissorsGame();
                     case "/y" -> messageManager.respondToRpsInvitation(true);
                     case "/n" -> messageManager.respondToRpsInvitation(false);
+                    case "/yes" -> messageManager.respondToTttInvitation(true);
+                    case "/no" -> messageManager.respondToTttInvitation(false);
                     case "/r" -> messageManager.sendRpsMove("/r");
                     case "/p" -> messageManager.sendRpsMove("/p");
                     case "/s" -> messageManager.sendRpsMove("/s");
                     case "/files" -> fileTransferManager.displayPendingRequests();
+                    case "/ttt" -> startTicTacToeGame();
                     default -> messageManager.sendBroadcastMessage(input);
                 }
             }
@@ -238,12 +243,30 @@ public class Client {
     }
 
     private static void startRockPaperScissorsGame() throws IOException {
-        System.out.println("List of connected clients:");
         messageManager.requestClientList();
 
-        System.out.println("Enter your opponent: ");
+        System.out.println("\nEnter your opponent: ");
         String opponent = userReader.readLine();
         messageManager.sendRpsStartRequest(opponent);
+    }
+    private static void startTicTacToeGame() throws IOException {
+        messageManager.requestClientList();
+
+        System.out.println("\nEnter your opponent: ");
+        String opponent = userReader.readLine();
+        messageManager.sendTttStartRequest(opponent);
+    }
+
+    private static void handleTicTacToeMove(String input) throws JsonProcessingException {
+        String[] parts = input.split(" ");
+        if (parts.length != 3) {
+            System.out.println("Invalid command. Use /ttt <row> <col>");
+            return;
+        }
+
+        int row = Integer.parseInt(parts[1]);
+        int col = Integer.parseInt(parts[2]);
+        messageManager.sendTttMove(row, col);
     }
 
     private static void showHelpMenu() {
@@ -257,6 +280,8 @@ public class Client {
         System.out.println("/files - Show all incoming file requests");
         System.out.println("/a <username> <filename> - Accept a file transfer request");
         System.out.println("/d <username> <filename> - Decline a file transfer request");
+        System.out.println("/ttt - Start a Tic-Tac-Toe game");
+        System.out.println("/tttmove <row> <col> - Make a move in Tic-Tac-Toe");
         System.out.println("Type a message to broadcast to the chatroom.");
         System.out.println("---------------------------------------------------------------------");
 
